@@ -51,13 +51,15 @@ class guba_comments:
         # 2、MongoDB
         if MongoDB:
             self.col = self.MongoClient()
+        else:
+            self.col = None
 
         # log setting
         log_format = '%(levelname)s %(asctime)s %(filename)s %(lineno)d %(message)s'
         logging.basicConfig(
             filename='test.log',
             format=log_format,
-            level=logging.DEBUG
+            level=logging.INFO
         )
 
     @staticmethod
@@ -95,7 +97,7 @@ class guba_comments:
                 return data_json
 
             except ValueError as e:
-                logging.debug('{} get null content'.format(data_json['href']))
+                logging.info('{} get null content'.format(data_json['href']))
                 return data_json
 
         elif '/new' in data_json['href']:
@@ -105,7 +107,7 @@ class guba_comments:
                 data_json['full_text'] = self.clear_str(soup.find('div', {'id': 'post_content'}).text)
                 return data_json
             except ValueError as e:
-                logging.debug('{} get null content'.format(data_json['href']))
+                logging.info('{} get null content'.format(data_json['href']))
         else:
             logging.info('{} is not in exit ip'.format(data_json['href']))
             return data_json
@@ -151,8 +153,8 @@ class guba_comments:
         :param page: the page needed to be processed
         :return:
         """
-        # Url = 'http://guba.eastmoney.com/list,{},99_{}.html'.format(self.secCode, page)
-        Url = 'http://guba.eastmoney.com/list,{},f_{}.html'.format(self.secCode, page)
+        Url = 'http://guba.eastmoney.com/list,{},99_{}.html'.format(self.secCode, page)
+        # Url = 'http://guba.eastmoney.com/list,{},f_{}.html'.format(self.secCode, page)
         soup = self.get_soup_form_url(Url)
         data_list = soup.find_all('div', 'articleh')
         error_num = 0
@@ -213,7 +215,7 @@ class guba_comments:
 
 if __name__ == '__main__':
     # init
-    demo = guba_comments('601985', pages_start=1321, pages_end=1480, num_start=0, collectionName='601985_8')
+    demo = guba_comments('000831', pages_start=1, pages_end=7, num_start=0, MongoDB=False)
 
     # setting
     header = {
@@ -222,7 +224,7 @@ if __name__ == '__main__':
     demo.header = header
 
     # TODO your own proxies setting
-    proxies = {'http': 'http://y889.kdltps.com:15818', 'https': 'http://y889.kdltps.com:15818'}
+    proxies = {'http': 'http://t811.kdltps.com:15818', 'https': 'http://t811.kdltps.com:15818'}
     demo.proxies = proxies
 
     # run and get data
