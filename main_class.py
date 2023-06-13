@@ -135,14 +135,14 @@ class guba_comments:
         :return: json data contains full_text
         """
 
-        spans = item.find_all('span')
+        tds = item.find_all('td')
         data_json = {
-            '阅读': spans[0].text,
-            '评论': spans[1].text,
-            '标题': spans[2].a['title'],
-            'href': spans[2].a['href'],
-            '作者': spans[3].a.text,
-            '最后更新': spans[4].text
+            '阅读': tds[0].text,
+            '评论': tds[1].text,
+            '标题': tds[2].a.text,
+            'href': tds[2].a['href'],
+            '作者': tds[3].a.text,
+            '最后更新': tds[4].text
         }
 
         return self.get_full_text(data_json)
@@ -156,7 +156,7 @@ class guba_comments:
         Url = 'http://guba.eastmoney.com/list,{},99_{}.html'.format(self.secCode, page)
         # Url = 'http://guba.eastmoney.com/list,{},f_{}.html'.format(self.secCode, page)
         soup = self.get_soup_form_url(Url)
-        data_list = soup.find_all('div', 'articleh')
+        data_list = soup.find_all('tr', 'listitem')
         error_num = 0
         if self.col:
             for item in data_list[self.num_start:]:
