@@ -2,8 +2,6 @@
 # @Time    : 2023/2/11 21:27
 # @Author  : Euclid-Jie
 # @File    : main_class.py
-import os
-import sys
 import time
 import pandas as pd
 import pymongo
@@ -12,7 +10,11 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 import logging
 from retrying import retry
-from test_proxy_pool import get_proxy, delete_proxy, get_proxies_count
+from typing import Optional, Union
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from Utils.MongoClient import MongoClient
+from Utils.EuclidDataTools import CsvClient
+from test.test_proxy_pool import get_proxy, delete_proxy, get_proxies_count
 
 
 class guba_comments:
@@ -32,35 +34,34 @@ class guba_comments:
 
     def __init__(
         self,
-        secCode,
-        pages_end,
-        pages_start=1,
-        num_start=0,
-        MongoDB=True,
-        collectionName=None,
+        secCode: Union[str, int],
+        pages_start: int = 0,
+        pages_end: int = 100,
+        num_start: int = 0,
+        MongoDB: bool = True,
+        collectionName: Optional[str] = None,
+        full_text: bool = False,
     ):
-        # init
-        self.collectionName = collectionName
-        self.num_start = num_start
-        self.secCode = secCode
-        self.pages_end = pages_end
+        # param init
+        if isinstance(secCode, int):
+            # 补齐6位数
+            self.secCode = str(secCode).zfill(6)
+        elif isinstance(secCode, str):
+            self.secCode = secCode
+        collectionName = collectionName if collectionName else self.secCode
         self.pages_start = pages_start
-
-        # default setting
-        self.header = None
-        self.SaveFolderPath = os.getcwd()
-        if self.collectionName is None:
-            self.collectionName = self.secCode
-        self.FilePath = secCode + ".csv"
-        self.DBName = "guba"
+        self.pages_end = pages_end
+        self.num_start = num_start
+        self.full_text = full_text
 
         # choose one save method, default MongoDB
         # 1、csv
         # 2、MongoDB
-        if MongoDB:
-            self.col = self.MongoClient()
-        else:
-            self.col = None
+        self.col = (
+            MongoClient("guba", collectionName)
+            if MongoDB
+            else CsvClient("guba", collectionName)
+        )
 
         # log setting
         log_format = "%(levelname)s %(asctime)s %(filename)s %(lineno)d %(message)s"
@@ -71,6 +72,12 @@ class guba_comments:
         for pat in ["\n", " ", " ", "\r", "\xa0", "\n\r\n"]:
             str_raw.strip(pat).replace(pat, "")
         return str_raw
+
+    @staticmethod
+    def run_thread_pool_sub(target, args, max_work_count):
+        with ThreadPoolExecutor(max_workers=max_work_count) as t:
+            res = [t.submit(target, i) for i in args]
+            return res
 
     @retry(stop_max_attempt_number=5)  # 最多尝试5次
     def get_soup_form_url(self, url: str, use_proxy=True) -> BeautifulSoup:
@@ -131,7 +138,7 @@ class guba_comments:
             match_times += 1
             if k in data_json["href"]:
                 url = v + data_json["href"]
-                soup = self.get_soup_form_url(url, use_proxy=True)
+                soup = self.get_soup_form_url(url)
                 try:
                     data_json["time"] = soup.find("div", {"class": "time"}).text
                     if soup.find("div", {"id": "post_content"}):
@@ -150,23 +157,6 @@ class guba_comments:
             elif match_times == url_map_len:
                 logging.info("{} is not define in url_map".format(data_json["href"]))
         return data_json
-
-    def save_data(self, data_df):
-        """
-        轮子函数，用于存储数据，可实现对已存在文件的追加写入
-        :param data_df: 目标数据
-        :return:
-        """
-        # concat the folderPath and dataPath
-        FileFullPath = os.path.join(self.SaveFolderPath, self.FilePath)
-        if os.path.isfile(FileFullPath):
-            data_df.to_csv(
-                self.FilePath, mode="a", header=False, index=False, encoding="utf_8_sig"
-            )
-        else:
-            data_df.to_csv(
-                self.FilePath, mode="w", header=True, index=False, encoding="utf_8_sig"
-            )
 
     def get_data_json(self, item):
         """
@@ -187,8 +177,10 @@ class guba_comments:
             "作者": tds[3].a.text,
             "最后更新": tds[4].text,
         }
-
-        return self.get_full_text(data_json)
+        if self.full_text:
+            return self.get_full_text(data_json)
+        else:
+            return data_json
 
     def get_data(self, page):
         """
@@ -200,65 +192,27 @@ class guba_comments:
         Url = "http://guba.eastmoney.com/list,{},f_{}.html".format(self.secCode, page)
         soup = self.get_soup_form_url(Url)
         data_list = soup.find_all("tr", "listitem")
-        error_num = 0
-        if self.col is not None:
-            for item in data_list[self.num_start :]:
-                try:
-                    data_json = self.get_data_json(item)
-                    self.col.insert_one(data_json)
-                    self.t.set_postfix(
-                        {
-                            "状态": "已写num:{}".format(self.num_start),
-                            "proxies counts": get_proxies_count(),
-                        }
-                    )  # 进度条右边显示信息
-                    error_num = 0
-                except ValueError as e:
-                    logging.error("item get_data getting fail")
-                    error_num += 1
-                    if error_num >= 5:
-                        sys.exit()
-                finally:
-                    self.num_start += 1
 
-        elif self.FilePath:
-            for item in data_list[self.num_start :]:
-                try:
-                    data_json = self.get_data_json(item)
-                    self.save_data(pd.DataFrame(data_json, index=[0]))
-                    self.t.set_postfix(
-                        {
-                            "状态": "已写入page:{} num:{}".format(page, self.num_start),
-                            "proxies counts": get_proxies_count(),
-                        }
-                    )  # 进度条右边显示信息
-                    error_num = 0
-                except ValueError as e:
-                    logging.error("item get_data getting fail")
-                    error_num += 1
-                    if error_num >= 5:
-                        sys.exit()
-                finally:
-                    self.num_start += 1
-
-        else:
-            raise ValueError("please set least one method to save data")
-
-    def MongoClient(self):
-        # 连接数据库
-        myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-        mydb = myclient[self.DBName]  # 数据库名称
-        mycol = mydb[self.collectionName]  # 集合（表）
-        return mycol
+        # 开启并行获取data_json
+        res = self.run_thread_pool_sub(self.get_data_json, data_list, max_work_count=12)
+        for future in as_completed(res):
+            data_json = future.result()
+            self.col.insert_one(data_json)
+            self.t.set_postfix(
+                {
+                    "状态": "已写num:{}".format(self.num_start),
+                    "proxies counts": get_proxies_count(),
+                }
+            )  # 进度条右边显示信息
+            self.num_start += 1
 
     def main(self):
         with tqdm(range(self.pages_start, self.pages_end)) as self.t:
             for page in self.t:
-                get_proxies_count()
                 self.t.set_description("page:{}".format(page))  # 进度条左边显示信息
                 self.t.set_postfix({"proxies counts": get_proxies_count()})
                 self.get_data(page)
-                time.sleep(5)
+                time.sleep(1)
                 self.num_start = 0
                 self.pages_start += 1
 
@@ -266,12 +220,11 @@ class guba_comments:
 if __name__ == "__main__":
     # init
     demo = guba_comments(
-        "002611",
-        pages_start=0,
-        pages_end=100,
-        num_start=0,
-        MongoDB=True,
+        secCode="002611",
+        pages_start=52,
+        MongoDB=False,
         collectionName="东方精工",
+        full_text=False,
     )
 
     # setting

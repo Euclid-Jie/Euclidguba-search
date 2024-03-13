@@ -1,3 +1,3 @@
-[submodule "PROXY_POOL"]
-	path = PROXY_POOL
+[submodule "proxy_pool"]
+	path = proxy_pool
 	url = git@github.com:jhao104/proxy_pool.git
