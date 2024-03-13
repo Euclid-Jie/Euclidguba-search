@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 import logging
 from retrying import retry
+from test_proxy_pool import get_proxy, delete_proxy, get_proxies_count
 
 
 class guba_comments:
@@ -28,6 +29,7 @@ class guba_comments:
         2、Use retry mechanism, once rise error, the program will restart at the least page and num (each page has 80 num)
 
     """
+
     def __init__(
         self,
         secCode,
@@ -46,7 +48,6 @@ class guba_comments:
 
         # default setting
         self.header = None
-        self.proxies = None
         self.SaveFolderPath = os.getcwd()
         if self.collectionName is None:
             self.collectionName = self.secCode
@@ -63,30 +64,53 @@ class guba_comments:
 
         # log setting
         log_format = "%(levelname)s %(asctime)s %(filename)s %(lineno)d %(message)s"
-        logging.basicConfig(filename="test.log",
-                            format=log_format,
-                            level=logging.INFO)
+        logging.basicConfig(filename="test.log", format=log_format, level=logging.INFO)
 
     @staticmethod
     def clear_str(str_raw):
         for pat in ["\n", " ", " ", "\r", "\xa0", "\n\r\n"]:
-            str_raw.strip(pat)
+            str_raw.strip(pat).replace(pat, "")
         return str_raw
 
-    @retry(stop_max_attempt_number=30)  # 最多尝试10次
-    def get_soup_form_url(self, url: str) -> BeautifulSoup:
+    @retry(stop_max_attempt_number=5)  # 最多尝试5次
+    def get_soup_form_url(self, url: str, use_proxy=True) -> BeautifulSoup:
         """
         get the html content used by requests.get
         :param url:
         :return: BeautifulSoup
         """
-        response = requests.get(url,
-                                headers=self.header,
-                                timeout=60,
-                                proxies=self.proxies)  # 使用request获取网页
-        html = response.content.decode("utf-8", "ignore")  # 将网页源码转换格式为html
-        soup = BeautifulSoup(html, features="lxml")  # 构建soup对象，"lxml"为设置的解析器
-        return soup
+        if use_proxy:
+            proxy = get_proxy().get("proxy")
+            proxies = {
+                "http": f"http://{proxy}",
+                "https": f"http://{proxy}",
+            }
+            try:
+                response = requests.get(
+                    url, headers=self.header, timeout=10, proxies=proxies
+                )  # 使用request获取网页
+                if response.status_code != 200:
+                    delete_proxy(proxy)
+                    raise ValueError("response.status_code != 200")
+                else:
+                    html = response.content.decode(
+                        "utf-8", "ignore"
+                    )  # 将网页源码转换格式为html
+                    soup = BeautifulSoup(
+                        html, features="lxml"
+                    )  # 构建soup对象，"lxml"为设置的解析器
+                    return soup
+            except Exception:
+                delete_proxy(proxy)
+                raise ValueError("get_soup_form_url getting fail")
+        else:
+            response = requests.get(url, headers=self.header, timeout=10)
+            if response.status_code != 200:
+                raise ValueError("response.status_code != 200")
+            else:
+                html = response.content.decode("utf-8", "ignore")
+                soup = BeautifulSoup(html, features="lxml")
+                return soup
 
     def get_full_text(self, data_json):
         """
@@ -97,48 +121,35 @@ class guba_comments:
         :param data_json: the json data lack full text
         :return: the data json with full text
         """
-        if "caifuhao" in data_json["href"]:
-            url = "https:" + data_json["href"]
-            soup = self.get_soup_form_url(url)
-            try:
-                data_json["time"] = soup.find("div", {"class": "time"}).text
-                if soup.find("div", {"id": "post_content"}):
-                    data_json["full_text"] = self.clear_str(
-                        soup.find("div", {
-                            "id": "post_content"
-                        }).text)
-                else:
-                    data_json["full_text"] = self.clear_str(
-                        soup.find("div", {
-                            "class": "newstext"
-                        }).text)
-                return data_json
-
-            except ValueError as e:
-                logging.info("{} get null content".format(data_json["href"]))
-                return data_json
-
-        elif "/new" in data_json["href"]:
-            url = "http://guba.eastmoney.com" + data_json["href"]
-            soup = self.get_soup_form_url(url)
-            try:
-                data_json["time"] = soup.find("div", {"class": "time"}).text
-                if soup.find("div", {"id": "post_content"}):
-                    data_json["full_text"] = self.clear_str(
-                        soup.find("div", {
-                            "id": "post_content"
-                        }).text)
-                else:
-                    data_json["full_text"] = self.clear_str(
-                        soup.find("div", {
-                            "class": "newstext"
-                        }).text)
-                return data_json
-            except ValueError or AttributeError as e:
-                logging.info("{} get null content".format(data_json["href"]))
-        else:
-            logging.info("{} is not in exit ip".format(data_json["href"]))
-            return data_json
+        url_map = {
+            "caifuhao": "https:",
+            "/new": "http://guba.eastmoney.com",
+        }
+        match_times = 0
+        url_map_len = len(url_map)
+        for k, v in url_map.items():
+            match_times += 1
+            if k in data_json["href"]:
+                url = v + data_json["href"]
+                soup = self.get_soup_form_url(url, use_proxy=True)
+                try:
+                    data_json["time"] = soup.find("div", {"class": "time"}).text
+                    if soup.find("div", {"id": "post_content"}):
+                        data_json["full_text"] = soup.find(
+                            "div", {"id": "post_content"}
+                        ).text
+                    else:
+                        data_json["full_text"] = soup.find(
+                            "div", {"class": "newstext"}
+                        ).text
+                    data_json["full_text"] = self.clear_str(data_json["full_text"])
+                except (ValueError, AttributeError) as e:
+                    logging.info(
+                        "{} get null full content, {}".format(data_json["href"], e)
+                    )
+            elif match_times == url_map_len:
+                logging.info("{} is not define in url_map".format(data_json["href"]))
+        return data_json
 
     def save_data(self, data_df):
         """
@@ -149,17 +160,13 @@ class guba_comments:
         # concat the folderPath and dataPath
         FileFullPath = os.path.join(self.SaveFolderPath, self.FilePath)
         if os.path.isfile(FileFullPath):
-            data_df.to_csv(self.FilePath,
-                           mode="a",
-                           header=False,
-                           index=False,
-                           encoding="utf_8_sig")
+            data_df.to_csv(
+                self.FilePath, mode="a", header=False, index=False, encoding="utf_8_sig"
+            )
         else:
-            data_df.to_csv(self.FilePath,
-                           mode="w",
-                           header=True,
-                           index=False,
-                           encoding="utf_8_sig")
+            data_df.to_csv(
+                self.FilePath, mode="w", header=True, index=False, encoding="utf_8_sig"
+            )
 
     def get_data_json(self, item):
         """
@@ -190,18 +197,21 @@ class guba_comments:
         :return:
         """
         # Url = "http://guba.eastmoney.com/list,{},99_{}.html".format(self.secCode, page)
-        Url = "http://guba.eastmoney.com/list,{},f_{}.html".format(
-            self.secCode, page)
+        Url = "http://guba.eastmoney.com/list,{},f_{}.html".format(self.secCode, page)
         soup = self.get_soup_form_url(Url)
         data_list = soup.find_all("tr", "listitem")
         error_num = 0
-        if self.col:
-            for item in data_list[self.num_start:]:
+        if self.col is not None:
+            for item in data_list[self.num_start :]:
                 try:
                     data_json = self.get_data_json(item)
                     self.col.insert_one(data_json)
                     self.t.set_postfix(
-                        {"状态": "已写num:{}".format(self.num_start)})  # 进度条右边显示信息
+                        {
+                            "状态": "已写num:{}".format(self.num_start),
+                            "proxies counts": get_proxies_count(),
+                        }
+                    )  # 进度条右边显示信息
                     error_num = 0
                 except ValueError as e:
                     logging.error("item get_data getting fail")
@@ -212,14 +222,16 @@ class guba_comments:
                     self.num_start += 1
 
         elif self.FilePath:
-            for item in data_list[self.num_start:]:
+            for item in data_list[self.num_start :]:
                 try:
                     data_json = self.get_data_json(item)
                     self.save_data(pd.DataFrame(data_json, index=[0]))
-                    self.t.set_postfix({
-                        "状态":
-                        "已写入page:{} num:{}".format(page, self.num_start)
-                    })  # 进度条右边显示信息
+                    self.t.set_postfix(
+                        {
+                            "状态": "已写入page:{} num:{}".format(page, self.num_start),
+                            "proxies counts": get_proxies_count(),
+                        }
+                    )  # 进度条右边显示信息
                     error_num = 0
                 except ValueError as e:
                     logging.error("item get_data getting fail")
@@ -239,41 +251,34 @@ class guba_comments:
         mycol = mydb[self.collectionName]  # 集合（表）
         return mycol
 
-    @retry(stop_max_attempt_number=300)  # 最多尝试10次
     def main(self):
         with tqdm(range(self.pages_start, self.pages_end)) as self.t:
             for page in self.t:
+                get_proxies_count()
                 self.t.set_description("page:{}".format(page))  # 进度条左边显示信息
+                self.t.set_postfix({"proxies counts": get_proxies_count()})
                 self.get_data(page)
                 time.sleep(5)
                 self.num_start = 0
                 self.pages_start += 1
-        time.sleep(5)
 
 
 if __name__ == "__main__":
     # init
     demo = guba_comments(
-        "002230",
-        pages_start=2000,
-        pages_end=2100,
+        "002611",
+        pages_start=0,
+        pages_end=100,
         num_start=0,
         MongoDB=True,
-        collectionName="科大讯飞",
+        collectionName="东方精工",
     )
 
     # setting
     header = {
-        "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0",
     }
     demo.header = header
-    # TODO your own proxies setting
-    proxies = {
-        "http": "http://r623.kdltps.com:15818",
-        "https": "http://r623.kdltps.com:15818",
-    }
-    demo.proxies = proxies
 
     # run and get data
     demo.main()
