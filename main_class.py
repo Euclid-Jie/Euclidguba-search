@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from Utils.MongoClient import MongoClient
 from Utils.EuclidDataTools import CsvClient
 from test.test_proxy_pool import get_proxy, delete_proxy, get_proxies_count
+from TreadCrawler import RedisClient
+import configparser
 
 
 class guba_comments:
@@ -62,6 +64,11 @@ class guba_comments:
             if MongoDB
             else CsvClient("guba", collectionName)
         )
+
+        # redis client for full_text_Crawler
+        config = configparser.ConfigParser()
+        config.read("setting.ini")
+        self.redis_client: RedisClient = RedisClient(config=config)
 
         # log setting
         log_format = "%(levelname)s %(asctime)s %(filename)s %(lineno)d %(message)s"
@@ -178,9 +185,8 @@ class guba_comments:
             "最后更新": tds[4].text,
         }
         if self.full_text:
-            return self.get_full_text(data_json)
-        else:
-            return data_json
+            self.redis_client.add_url(data_json["href"])
+        return data_json
 
     def get_data(self, page):
         """
@@ -221,10 +227,9 @@ if __name__ == "__main__":
     # init
     demo = guba_comments(
         secCode="002611",
-        pages_start=52,
-        MongoDB=False,
+        MongoDB=True,
         collectionName="东方精工",
-        full_text=False,
+        full_text=True,
     )
 
     # setting

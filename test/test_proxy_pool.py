@@ -1,7 +1,16 @@
 # 从数据库调用IP
 import requests
+import random
+import time
+
 def get_proxy():
-    return requests.get("http://127.0.0.1:5010/get/").json()
+    all = requests.get("http://127.0.0.1:5010/all/").json()
+    # 随机选一个
+    if len(all) == 0:
+        time.sleep(10)
+        print("No proxy available, waiting for 10 seconds")
+        return get_proxy()
+    return random.choice(all)
 
 def get_proxies_count() -> int:
     return requests.get("http://127.0.0.1:5010/count/").json()["count"]
