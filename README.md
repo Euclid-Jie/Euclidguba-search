@@ -80,6 +80,10 @@
 
 ## 附录
 
-1. 股吧页面截图
+1. 爬取成功的数据截图
 
-![](https://euclid-picgo.oss-cn-shenzhen.aliyuncs.com/image/202302161115850.png)
+   ![image-20240315123641440](https://euclid-picgo.oss-cn-shenzhen.aliyuncs.com/image/image-20240315123641440.png)
+
+2. 股吧页面截图
+
+    ![](https://euclid-picgo.oss-cn-shenzhen.aliyuncs.com/image/202302161115850.png)
