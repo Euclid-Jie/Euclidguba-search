@@ -1,7 +1,7 @@
 from TreadCrawler import ThreadUrlCrawler
 import requests
 from typing import Union
-from test.test_proxy_pool import get_proxy, delete_proxy, get_proxies_count
+from test.test_proxy_pool import get_proxy, delete_proxy
 from bs4 import BeautifulSoup
 from Utils.MongoClient import MongoClient
 
@@ -11,6 +11,8 @@ class FullTextCrawler(ThreadUrlCrawler):
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0",
     }
     mongo_client = MongoClient("guba", "东方精工")
+    failed_proxies = {}
+    proxy_fail_times_treshold = 16
 
     def crawl(self, url):
         """
@@ -33,6 +35,11 @@ class FullTextCrawler(ThreadUrlCrawler):
                 soup = self.get_soup_form_url(v + url)
                 if soup:
                     try:
+                        time = soup.find("div", {"class": "time"}).text
+                    except (ValueError, AttributeError) as e:
+                        time = ""
+                    try:
+
                         if soup.find("div", {"id": "post_content"}):
                             full_text = soup.find("div", {"id": "post_content"}).text
                         else:
@@ -41,11 +48,14 @@ class FullTextCrawler(ThreadUrlCrawler):
                         full_text = ""
                 else:
                     full_text = None
+                    return False
             elif match_times == url_map_len:
                 full_text = None
         if full_text:
             print(f"Successfully crawled: {url}, full text: {full_text}")
-            self.mongo_client.update_one({"href": url}, {"$set": {"full_text": full_text}})
+            self.mongo_client.update_one(
+                {"href": url}, {"$set": {"full_text": full_text, "time": time}}
+            )
             return True
         elif full_text is None:
             print(f"Failed to crawl: {url}")
@@ -65,7 +75,10 @@ class FullTextCrawler(ThreadUrlCrawler):
                 url, headers=self.header, timeout=10, proxies=proxies
             )  # 使用request获取网页
             if response.status_code != 200:
-                delete_proxy(proxy)
+                self.failed_proxies[proxy] = self.failed_proxies.get(proxy, 0) + 1
+                if self.failed_proxies[proxy] >= self.proxy_fail_times_treshold:
+                    delete_proxy(proxy)
+                    del self.failed_proxies[proxy]
                 return None
             else:
                 html = response.content.decode(
@@ -76,7 +89,10 @@ class FullTextCrawler(ThreadUrlCrawler):
                 )  # 构建soup对象，"lxml"为设置的解析器
                 return soup
         except Exception as e:
-            delete_proxy(proxy)
+            self.failed_proxies[proxy] = self.failed_proxies.get(proxy, 0) + 1
+            if self.failed_proxies[proxy] >= self.proxy_fail_times_treshold:
+                delete_proxy(proxy)
+                del self.failed_proxies[proxy]
             return None
 
 

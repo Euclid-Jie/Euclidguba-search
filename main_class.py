@@ -2,9 +2,7 @@
 # @Time    : 2023/2/11 21:27
 # @Author  : Euclid-Jie
 # @File    : main_class.py
-import time
 import pandas as pd
-import pymongo
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
@@ -34,6 +32,9 @@ class guba_comments:
 
     """
 
+    failed_proxies = {}
+    proxy_fail_times_treshold = 3
+
     def __init__(
         self,
         secCode: Union[str, int],
@@ -50,25 +51,48 @@ class guba_comments:
             self.secCode = str(secCode).zfill(6)
         elif isinstance(secCode, str):
             self.secCode = secCode
-        collectionName = collectionName if collectionName else self.secCode
         self.pages_start = pages_start
         self.pages_end = pages_end
         self.num_start = num_start
         self.full_text = full_text
+        self._year = pd.Timestamp.now().year
+
+        # redis client for full_text_Crawler
+        config = configparser.ConfigParser()
+        config.read("setting.ini", encoding="utf-8")
+        self.redis_client: RedisClient = RedisClient(config=config)
+
+        # rewrite the secCode setting
+        if config.has_option("mainClass", "secCode"):
+            self.secCode = config.get("mainClass", "secCode")
+            print(
+                f"secCode has been overridden by {self.secCode} in the configuration file."
+            )
+        if config.has_option("mainClass", "pages_start"):
+            self.pages_start = int(config.get("mainClass", "pages_start"))
+            print(
+                f"pages_start has been overridden by {self.pages_start} in the configuration file."
+            )
+        if config.has_option("mainClass", "pages_end"):
+            self.pages_end = int(config.get("mainClass", "pages_end"))
+            print(
+                f"pages_end has been overridden by {self.pages_end} in the configuration file."
+            )
+        if config.has_option("mainClass", "collectionName"):
+            collectionName = config.get("mainClass", "collectionName")
+            print(
+                f"collectionName has been overridden by {collectionName} in the configuration file."
+            )
 
         # choose one save method, default MongoDB
         # 1、csv
         # 2、MongoDB
+        collectionName = collectionName if collectionName else self.secCode
         self.col = (
             MongoClient("guba", collectionName)
             if MongoDB
             else CsvClient("guba", collectionName)
         )
-
-        # redis client for full_text_Crawler
-        config = configparser.ConfigParser()
-        config.read("setting.ini")
-        self.redis_client: RedisClient = RedisClient(config=config)
 
         # log setting
         log_format = "%(levelname)s %(asctime)s %(filename)s %(lineno)d %(message)s"
@@ -104,7 +128,9 @@ class guba_comments:
                     url, headers=self.header, timeout=10, proxies=proxies
                 )  # 使用request获取网页
                 if response.status_code != 200:
-                    delete_proxy(proxy)
+                    if self.failed_proxies[proxy] >= self.proxy_fail_times_treshold:
+                        delete_proxy(proxy)
+                        del self.failed_proxies[proxy]
                     raise ValueError("response.status_code != 200")
                 else:
                     html = response.content.decode(
@@ -115,7 +141,9 @@ class guba_comments:
                     )  # 构建soup对象，"lxml"为设置的解析器
                     return soup
             except Exception:
-                delete_proxy(proxy)
+                if self.failed_proxies[proxy] >= self.proxy_fail_times_treshold:
+                    delete_proxy(proxy)
+                    del self.failed_proxies[proxy]
                 raise ValueError("get_soup_form_url getting fail")
         else:
             response = requests.get(url, headers=self.header, timeout=10)
@@ -184,6 +212,13 @@ class guba_comments:
             "作者": tds[3].a.text,
             "最后更新": tds[4].text,
         }
+        if "caifuhao" in data_json["href"]:
+            self._year = int(data_json["href"].split("/")[-1][0:4])
+        dt = pd.to_datetime(str(self._year) + "-" + data_json["最后更新"])
+        if dt > pd.Timestamp.now():
+            self._year -= 1
+            dt = pd.to_datetime(str(self._year) + "-" + data_json["最后更新"])
+        data_json["最后更新"] = dt
         if self.full_text:
             self.redis_client.add_url(data_json["href"])
         return data_json
@@ -218,7 +253,6 @@ class guba_comments:
                 self.t.set_description("page:{}".format(page))  # 进度条左边显示信息
                 self.t.set_postfix({"proxies counts": get_proxies_count()})
                 self.get_data(page)
-                time.sleep(1)
                 self.num_start = 0
                 self.pages_start += 1
 
@@ -227,6 +261,8 @@ if __name__ == "__main__":
     # init
     demo = guba_comments(
         secCode="002611",
+        pages_start=1,
+        pages_end=5,
         MongoDB=True,
         collectionName="东方精工",
         full_text=True,
