@@ -1,4 +1,5 @@
 # 东方财富股吧数据采集
+[![wakatime](https://wakatime.com/badge/user/b638b33f-0c9e-4408-b427-258fe0b24ad0/project/018e0f79-4bee-4fd1-8d86-55a20bee6528.svg)](https://wakatime.com/badge/user/b638b33f-0c9e-4408-b427-258fe0b24ad0/project/018e0f79-4bee-4fd1-8d86-55a20bee6528)
 
 长期维护，欢迎issue，帮助完善代码
 
