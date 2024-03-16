@@ -19,8 +19,8 @@
 demo = guba_comments('601985', pages_start=1321, pages_end=1480, MongoDB=True)
 ```
 
-- 代理服务器域名网址，端口，推荐使用：[易代理](https://www.kuaidaili.com/?ref=mes9ujq5wnrn)，隧道代理按量计费一小时1元钱
-  > 如果直接使用[易代理](https://www.kuaidaili.com/?ref=mes9ujq5wnrn)，此链接注册并成功消费，我会收到5%~15%的返现，可以[联系我](Ouweijie123@outlook.com)退还，相当于折扣
+- 代理服务器域名网址，端口，推荐使用：[快代理](https://www.kuaidaili.com/?ref=mes9ujq5wnrn)，隧道代理按量计费一小时1元钱
+  > 如果直接使用[快代理](https://www.kuaidaili.com/?ref=mes9ujq5wnrn)，此链接注册并成功消费，我会收到5%~15%的返现，可以[联系我](Ouweijie123@outlook.com)退还，相当于折扣
   >
 
 ```

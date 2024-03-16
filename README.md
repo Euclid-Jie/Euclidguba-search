@@ -23,7 +23,7 @@
 
 1. 第一种方式，如果你会使用`git`, 请直接`clone`
 
-2. 第二种方式，下载源码，详见下图，点击 `Download ZIP` 既可下载，随机解压既可
+2. 第二种方式，下载源码，详见下图，点击 `Download ZIP` 既可下载，随即解压既可
 
    ![image-20240315122017995](https://euclid-picgo.oss-cn-shenzhen.aliyuncs.com/image/image-20240315122017995.png)
 
