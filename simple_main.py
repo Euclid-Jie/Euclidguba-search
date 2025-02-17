@@ -10,9 +10,7 @@ import logging
 from retrying import retry
 from typing import Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from Utils.MongoClient import MongoClient
 from Utils.EuclidDataTools import CsvClient
-from TreadCrawler import RedisClient
 import configparser
 
 
@@ -41,9 +39,7 @@ class guba_comments:
         pages_start: int = 0,
         pages_end: int = 100,
         num_start: int = 0,
-        MongoDB: bool = True,
         collectionName: Optional[str] = None,
-        full_text: bool = False,
     ):
         # param init
         if isinstance(secCode, int):
@@ -54,11 +50,7 @@ class guba_comments:
         self.pages_start = pages_start
         self.pages_end = pages_end
         self.num_start = num_start
-        self.full_text = full_text
         self._year = pd.Timestamp.now().year
-
-        # redis client for full_text_Crawler
-        self.redis_client: RedisClient = RedisClient(config=config)
 
         # rewrite the secCode setting
         if config.has_option("mainClass", "secCode"):
@@ -82,15 +74,8 @@ class guba_comments:
                 f"collectionName has been overridden by {collectionName} in the configuration file."
             )
 
-        # choose one save method, default MongoDB
-        # 1、csv
-        # 2、MongoDB
         collectionName = collectionName if collectionName else self.secCode
-        self.col = (
-            MongoClient("guba", collectionName)
-            if MongoDB
-            else CsvClient("guba", collectionName)
-        )
+        self.col = CsvClient("guba", collectionName)
 
         # log setting
         log_format = "%(levelname)s %(asctime)s %(filename)s %(lineno)d %(message)s"
@@ -148,8 +133,6 @@ class guba_comments:
             self._year -= 1
             dt = pd.to_datetime(str(self._year) + "-" + data_json["最后更新"])
         data_json["最后更新"] = dt
-        if self.full_text:
-            self.redis_client.add_url(data_json["href"])
         return data_json
 
     def get_data(self, page):
@@ -192,9 +175,7 @@ if __name__ == "__main__":
     demo = guba_comments(
         config=config,
         secCode="002611",
-        MongoDB=True,
         collectionName="东方精工",
-        full_text=True,
     )
 
     # setting

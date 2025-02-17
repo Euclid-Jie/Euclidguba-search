@@ -1,9 +1,9 @@
 from TreadCrawler import ThreadUrlCrawler
 import requests
 from typing import Union
-from test.test_proxy_pool import get_proxy, delete_proxy
 from bs4 import BeautifulSoup
 from Utils.MongoClient import MongoClient
+import configparser
 
 
 class FullTextCrawler(ThreadUrlCrawler):
@@ -62,23 +62,11 @@ class FullTextCrawler(ThreadUrlCrawler):
             return False
 
     def get_soup_form_url(self, url) -> Union[BeautifulSoup, None]:
-        proxy = get_proxy().get("proxy")
-        if proxy is None:
-            print("proxy is None")
-            return None
-        proxies = {
-            "http": f"http://{proxy}",
-            "https": f"http://{proxy}",
-        }
         try:
             response = requests.get(
-                url, headers=self.header, timeout=10, proxies=proxies
+                url, headers=self.header, timeout=10, proxies=self.proxies
             )  # 使用request获取网页
             if response.status_code != 200:
-                self.failed_proxies[proxy] = self.failed_proxies.get(proxy, 0) + 1
-                if self.failed_proxies[proxy] >= self.proxy_fail_times_treshold:
-                    delete_proxy(proxy)
-                    del self.failed_proxies[proxy]
                 return None
             else:
                 html = response.content.decode(
@@ -89,13 +77,18 @@ class FullTextCrawler(ThreadUrlCrawler):
                 )  # 构建soup对象，"lxml"为设置的解析器
                 return soup
         except Exception as e:
-            self.failed_proxies[proxy] = self.failed_proxies.get(proxy, 0) + 1
-            if self.failed_proxies[proxy] >= self.proxy_fail_times_treshold:
-                delete_proxy(proxy)
-                del self.failed_proxies[proxy]
             return None
 
 
 if __name__ == "__main__":
+    # 读取配置文件
+    config = configparser.ConfigParser()
+    config.read("setting.ini", encoding="utf-8")
+    tunnel = config.get("proxies", "tunnel")
+    # 启动full_text_crawler,置于后台运行,一旦有新的url加入redis中,将会自动爬取,并存入mongodb
     full_text_crawler = FullTextCrawler()
+    full_text_crawler.proxies = {
+        "http": "http://%(proxy)s/" % {"proxy": tunnel},
+        "https": "http://%(proxy)s/" % {"proxy": tunnel},
+    }
     full_text_crawler.start()

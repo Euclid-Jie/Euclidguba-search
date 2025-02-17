@@ -1,3 +1,0 @@
-[submodule "proxy_pool"]
-	path = proxy_pool
-	url = git@github.com:Euclid-Jie/proxy_pool.git
